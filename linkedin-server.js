@@ -30,16 +30,6 @@ const getEmails = (accessToken) => {
   return emails;
 };
 
-// checks whether a string parses as JSON
-const isJSON = (str) => {
-  try {
-    JSON.parse(str);
-    return true;
-  } catch (err) {
-    return false;
-  }
-};
-
 // returns an object containing: accessToken, expiresIn (lifetime of token in seconds)
 const getTokenResponse = async (query, callback) => {
   const config = ServiceConfiguration.configurations.findOne({ service: 'linkedin' });

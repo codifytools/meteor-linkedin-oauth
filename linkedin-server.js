@@ -30,61 +30,42 @@ const getEmails = (accessToken) => {
   return emails;
 };
 
-// checks whether a string parses as JSON
-const isJSON = (str) => {
-  try {
-    JSON.parse(str);
-    return true;
-  } catch (err) {
-    return false;
-  }
-};
-
-// returns an object containing:
-// - accessToken
-// - expiresIn: lifetime of token in seconds
-const getTokenResponse = (query) => {
+// returns an object containing: accessToken, expiresIn (lifetime of token in seconds)
+const getTokenResponse = async (query, callback) => {
   const config = ServiceConfiguration.configurations.findOne({ service: 'linkedin' });
 
   if (!config) {
     throw new ServiceConfiguration.ConfigError();
   }
 
-  let responseContent;
+  const content = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: config.clientId,
+    client_secret: OAuth.openSecret(config.secret),
+    code: query.code,
+    redirect_uri: OAuth._redirectUri('linkedin', config)
+  });
 
-  try {
-    // Request an access token
-    responseContent = HTTP.get('https://api.linkedin.com/uas/oauth2/accessToken', {
-      params: {
-        grant_type: 'authorization_code',
-        client_id: config.clientId,
-        client_secret: OAuth.openSecret(config.secret),
-        code: query.code,
-        redirect_uri: OAuth._redirectUri('linkedin', config)
-      }
-    }).content;
-  } catch (err) {
-    throw new Error(`Failed to complete OAuth handshake with Linkedin. ${err.message}`);
+  const request = await fetch('https://api.linkedin.com/uas/oauth2/accessToken', {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: content
+  });
+
+  const response = await request.json();
+
+  if (response.error) {
+    callback(response.error);
+    throw new Error(`Failed to complete OAuth handshake with Linkedin. ${response.error}`);
+  } else {
+    const data = {
+      accessToken: response.access_token,
+      expiresIn: response.expires_in
+    };
+
+    callback(undefined, data);
+    return data;
   }
-
-  // If 'responseContent' does not parse as JSON, it is an error.
-  if (!isJSON(responseContent)) {
-    throw new Error(`Failed to complete OAuth handshake with Linkedin. ${responseContent}`);
-  }
-
-  // Success! Extract access token and expiration
-  const parsedResponse = JSON.parse(responseContent);
-  const accessToken = parsedResponse.access_token;
-  const expiresIn = parsedResponse.expires_in;
-
-  if (!accessToken) {
-    throw new Error(`Failed to complete OAuth handshake with Linkedin -- can't find access token in HTTP response. ${responseContent}`);
-  }
-
-  return {
-    accessToken,
-    expiresIn
-  };
 };
 
 // Request available fields from r_liteprofile
@@ -98,7 +79,8 @@ const getIdentity = (accessToken) => {
 };
 
 OAuth.registerService('linkedin', 2, null, query => {
-  const response = getTokenResponse(query);
+  const responseCall = Meteor.wrapAsync(getTokenResponse);
+  const response = responseCall(query);
   const { accessToken } = response;
   const identity = getIdentity(accessToken);
 
